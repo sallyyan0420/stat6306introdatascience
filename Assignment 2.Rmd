@@ -1,15 +1,13 @@
 ---
-title: "Assignment 2"
+title: "swirl 1"
 author: "Yan Xu"
-date: "September 7, 2015"
+date: "September 13, 2015"
 output: html_document
 ---
 
 
 ```{r}
-skills <-c("Computer programming","Math","Statistics","Machine learning","Domain expertise","Communication and presentation skills","Data visnalizalion")
-ratings <- c(2,4,3,2,0,2,2)
-barplot(ratings,names.arg=skills,col=rainbow(7))
+
 ```
 
 
