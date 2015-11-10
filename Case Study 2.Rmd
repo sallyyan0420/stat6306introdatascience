@@ -1,0 +1,305 @@
+---
+title: "Case Study 2"
+author: "xuyan"
+date: "November 7, 2015"
+output: html_document
+---
+
+##Introduction:
+In this case study 2, I want to use the information of the job description for data scientists from the job website Cybercoders.com to define what is the most important skills for data scientists. First, I follow the functions from Dr. McGee step by step, and obtain all skills that are mentioned more than twice in the website for data scientists. Second, I combine the skills which have the same meanings and sort all these stuff by creating a new dataset. Finally, I make some conclusions after observing the bar chart and pie chart for the required skills and unveil the most important skills.
+
+```{r}
+library(XML)
+library(RCurl)
+
+StopWords = readLines("http://jmlr.csail.mit.edu/papers/volume5/lewis04a/a11-smart-stop-list/english.stop")
+
+asWords = function(txt, stopWords = StopWords, stem = FALSE)
+{
+  words = unlist(strsplit(txt, '[[:space:]!.,;#:()/"]+'))
+  words = words[words != ""]
+  if(stem && require(Rlibstemmer))
+     words = wordStem(words)
+  i = tolower(words) %in% tolower(stopWords)
+  words[!i]
+}
+
+removeStopWords = function(x, stopWords = StopWords) 
+     {
+         if(is.character(x))
+             setdiff(x, stopWords)
+         else if(is.list(x))
+             lapply(x, removeStopWords, stopWords)
+         else
+             x
+     }
+
+cy.getFreeFormWords = function(doc, stopWords = StopWords)
+     {
+         nodes = getNodeSet(doc, "//div[@class='job-details']/
+                                 div[@data-section]")
+         if(length(nodes) == 0) 
+             nodes = getNodeSet(doc, "//div[@class='job-details']//p")
+         
+         if(length(nodes) == 0) 
+             warning("did not find any nodes for the free form text in ",
+                     docName(doc))
+         
+         words = lapply(nodes,
+                        function(x)
+                            strsplit(xmlValue(x), 
+                                     "[[:space:][:punct:]]+"))
+         
+         removeStopWords(words, stopWords)
+     }
+```
+
+** Question 1**: Implement the following functions. Use the code we explored to extract the date posted, skill sets and salary and location information from the parsed HTML document.
+
+```{r Question1}
+cy.getSkillList = function(doc)
+{
+  lis = getNodeSet(doc, "//div[@class = 'skills-section']//
+                         li[@class = 'skill-item']//
+                         span[@class = 'skill-name']")
+
+  sapply(lis, xmlValue)
+}
+
+cy.getDatePosted = function(doc)
+  { xmlValue(getNodeSet(doc, 
+                     "//div[@class = 'job-details']//
+                        div[@class='posted']/
+                        span/following-sibling::text()")[[1]],
+    trim = TRUE) 
+}
+
+cy.getLocationSalary = function(doc)
+{
+  ans = xpathSApply(doc, "//div[@class = 'job-info-main'][1]/div", xmlValue)
+  names(ans) = c("location", "salary")
+  ans
+}
+
+# cy.getSkillList(cydoc)
+# cy.getLocationSalary(cydoc)
+```
+
+The function `cy.ReadPost()` given below reads each job post. This function implements three other functions: `cy.getFreeFormWords()`, `cy.getSkillList()`, and `cy.getLocationSalary()`.
+
+```{r cy.readPost}
+cy.readPost = function(u, stopWords = StopWords, doc = htmlParse(u))
+  {
+    ans = list(words = cy.getFreeFormWords(doc, stopWords),
+         datePosted = cy.getDatePosted(doc),
+         skills = cy.getSkillList(doc))
+    o = cy.getLocationSalary(doc)
+    ans[names(o)] = o
+    ans
+}
+# cyFuns = list(readPost = function(u, stopWords = StopWords, doc=htmlParse(u)))
+```
+**Reading posts programmatically**
+The function `cy.ReadPost()` allows us to read a single post from CyberCoders.com in a very general format. All we need is the URL for the post. Now, let's see about obtaining the URLs using a computer program.
+
+```{r GetPosts}
+# Obtain URLs for job posts
+txt = getForm("http://www.cybercoders.com/search/", searchterms = '"Data Scientist"',
+              searchlocation = "",  newsearch = "true", sorttype = "")
+# Parse the links
+doc = htmlParse(txt, asText = TRUE)
+links = getNodeSet(doc, "//div[@class = 'job-title']/a/@href")
+# Save the links in the vector joblinks
+joblinks <- getRelativeURL(as.character(links), "http://www.cybercoders.com/search/")
+# Read the posts
+#posts <- lapply(joblinks,cy.readPost)
+
+cy.getPostLinks = function(doc, baseURL = "http://www.cybercoders.com/search/") 
+  {
+    if(is.character(doc)) doc = htmlParse(doc)
+    links = getNodeSet(doc, "//div[@class = 'job-title']/a/@href") 
+    getRelativeURL(as.character(links), baseURL)
+}
+
+cy.readPagePosts = function(doc, links = cy.getPostLinks(doc, baseURL),
+baseURL = "http://www.cybercoders.com/search/")
+  {
+    if(is.character(doc)) doc = htmlParse(doc)
+    lapply(links, cy.readPost)
+ }
+
+## Testing the function with the parsed version of the first page of results in object doc
+posts = cy.readPagePosts(doc)
+sapply(posts,`[[`, "salary")
+summary(sapply(posts, function(x) length(unlist(x$words))))
+```
+
+**Question:** Test the `cy.getFreeFromWords()` function on several different posts.
+
+The following code chunk pulls it all together. The function `cy.getNextPageLink()` retrieves each page from CyberCoders and calls the other functions to parse each post in order to obtain information such as salary, skills, and location.
+
+```{r Next Page of Results}
+# Test of concept
+# getNodeSet(doc, "//a[@rel='next']/@href")[[1]]
+## A function to get all pages
+cy.getNextPageLink = function(doc, baseURL = docName(doc))
+{
+  if(is.na(baseURL))
+     baseURL = "http://www.cybercoders.com/"
+  link = getNodeSet(doc, "//li[@class = 'lnk-next pager-item ']/a/@href")
+  if(length(link) == 0)
+    return(character())
+    link2 <- gsub("./", "search/",link[[1]])
+ getRelativeURL(link2, baseURL)
+}
+
+# Test the above function
+tmp = cy.getNextPageLink(doc, "http://www.cybercoders.com")
+```
+
+Now we have all we need to retrieve all job posts on Cyber Coders for a given search query. The following function puts it all together into a function that we can call with a search string for a job of interest. The function submits the initial query and then reads the posts from each result page.
+```{r cyberCoders}
+cyberCoders =
+function(query)
+{
+   txt = getForm("http://www.cybercoders.com/search/",
+                  searchterms = query,  searchlocation = "",
+                  newsearch = "true",  sorttype = "")
+   doc = htmlParse(txt)
+
+   posts = list()
+   while(TRUE) {
+       posts = c(posts, cy.readPagePosts(doc))
+       nextPage = cy.getNextPageLink(doc)
+       if(length(nextPage) == 0)
+          break
+
+       nextPage = getURLContent(nextPage)
+       doc = htmlParse(nextPage, asText = TRUE)
+   }
+   invisible(posts)
+}
+
+dataSciPosts = cyberCoders("Data Scientist")
+tt = sort(table(unlist(lapply(dataSciPosts, `[[`, "skills"))),
+           decreasing = TRUE)
+tt[tt >= 2]
+```
+
+##Clean up the skills and combine the categories.
+
+```{r}
+tt.2 <- tt[tt>=2]
+tt.2[1] <- tt.2[1]+tt.2[32]+tt.2[45]
+tt.2[2] <- tt.2[2]+tt.2[84]+tt.2[85]+tt.2[86] 
+tt.2[3] <- tt.2[3]+tt.2[19]+tt.2[20]+tt.2[21]+tt.2[28]+tt.2[60]+tt.2[61]+tt.2[62] #name changed to "data mining/analysis"
+tt.2[4] <- tt.2[4]+tt.2[50]+tt.2[84]+tt.2[85]+tt.2[86]
+tt.2[6] <- tt.2[6]+tt.2[23]+tt.2[47]+tt.2[79]+tt.2[92]+tt.2[93]
+tt.2[8] <- tt.2[8]+tt.2[85]
+tt.2[9] <- tt.2[9]+tt.2[89]
+tt.2[10] <- tt.2[10]+tt.2[27]+tt.2[39]+tt.2[72]
+tt.2[12] <- tt.2[12]+tt.2[36]
+tt.2[13] <- tt.2[13]+tt.2[99]+tt.2[100] #change the name to "Unix/Linux"
+tt.2[14] <- tt.2[14]+tt.2[16]  #change the name to "Spark"
+tt.2[15] <- tt.2[15]+tt.2[30]+tt.2[80]+tt.2[81]
+tt.2[17] <- tt.2[17]+tt.2[24]+tt.2[25]+tt.2[54]+tt.2[95]+tt.2[96]
+tt.2[18] <- tt.2[18]+tt.2[33]  #change the name to "C/C++"
+tt.2[22] <- tt.2[22]+tt.2[74]
+tt.2[31] <- tt.2[31]+tt.2[40]
+tt.2[34] <- tt.2[34]+tt.2[71]
+tt.2[42] <- tt.2[42]+tt.2[66]
+tt.2[51] <- tt.2[51]+tt.2[89]
+
+
+names(tt.2)[3] <- "Data Mining/Analysis"
+names(tt.2)[13] <- "Unix/Linux"
+names(tt.2)[14] <- "Spark"
+names(tt.2)[18] <- "C/C++"
+
+#Get the new skills list by deleting the merged ones
+tt.3 <- tt.2[-c(32,45,84,85,86,19,20,21,28,60,61,62,50,84,85,86,23,
+                47,79,92,93,89,27,39,72,36,99,100,16,30,80,81,24,25,
+                54,95,96,33,40,71,66,89,74)]
+
+#Sort the list by descending order
+tt.4 <- sort(tt.3,decreasing=T)
+```
+
+##Delete those skills with only two or three appearance. I assume that those skills are of less importance. 
+```{r}
+tt.5 <- tt.4[tt.4>=4]
+#Define the importance of each skill as its mentioned times.
+Importance <- as.numeric(tt.5)
+
+#Rename the skills with their order added.
+Skills <- c("01. Data Mining/Analysis", "02. Machine Learning",
+            "03. Python","04. R",
+            "05. Hadoop", "06. SQL",
+            "07. Statistics", "08. Big Data",
+            "09. Java", "10. Matlab",
+            "11. Spark", "12. SAS",
+            "13. Predictive Analytics","14. Unix/Linux",
+            "15. Algorithms", "16. Scala",
+            "17. C/C++", "18. Mapreduce",
+            "19. Data Visualization", "20. AWS",
+            "21. Natural Language Processing", "22. Hive",
+            "23. Excel", "24. SPSS","25. Tableau")
+```
+
+##Visualize the relation between skills and their importance. Here I use a barplot.
+```{r}
+library(ggplot2)
+qplot(y=Importance,x=Skills,geom="bar",stat="identity",fill=Skills)+coord_flip()
+
+```
+
+```{r}
+sum(Importance[1:4])/sum(Importance)
+```
+
+```{r}
+#Pie charts
+Skills2 <- c("01. Data Mining/Analysis", "02. Machine Learning",
+            "03. Python","04. R",
+            "05. Hadoop", "06. SQL",
+            "07. Statistics", "08. Big Data",
+            "09. Java", "10. Matlab",
+            "11. Spark", "12. SAS",
+            "13. Predictive Analytics","14. Unix/Linux",
+            "15. Algorithms", "16. Scala",
+            "17. Others")
+Importance2<-Importance
+Importance2[17] <- sum(Importance[17:25])
+Importance2 <- Importance2[-(18:25)]
+
+pie.skills <- data.frame(Skills2,Importance2)
+
+pp <- ggplot(pie.skills,aes(x=1,y=Importance2,fill=Skills2)) +geom_bar(stat="identity")+coord_polar(theta='y')
+pp <- pp +  geom_bar(stat="identity", color='black') +
+        guides(fill=guide_legend(override.aes=list(colour=NA)))
+pp <- pp +
+    theme(axis.ticks=element_blank(),
+          axis.title=element_blank(), 
+          axis.text.y=element_blank())
+
+y.breaks <- cumsum(pie.skills$Importance2) - pie.skills$Importance2/2
+
+pp <- pp +
+    theme(axis.text.x=element_text(color='black')) +
+    scale_y_continuous(
+        breaks=y.breaks,   
+        labels=pie.skills$Skills2 
+    )
+
+print(pp)
+
+
+```
+
+
+##Conclusion:
+The first four skills are most important, which take up almost 50% total mentioned times. They are "Data Mining", "Machine Learning", "Python", and "R". These findings implies a great importance of programming.
+The next two skills are Hadoop and SQL, showing the importance of capability of managing big data and database nowadays. After that the importance decreases rapidly, but they still reveals the importance of programming because JAVA, Matlab, SAS and some other languages are also included.
+
+
+
