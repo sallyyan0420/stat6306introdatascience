@@ -1,0 +1,108 @@
+---
+title: "Homework 6"
+author: "Yan Xu"
+date: "November 17, 2015"
+output: html_document
+---
+
+
+#Create dataset contain variable annual estemm,log income (Income2005), intelligence (AFQT), years of education (educ), and gender
+
+```{r}
+library(Sleuth3)
+library(rpart)
+library(rpart.plot)
+library(MASS)
+library(klaR)
+data(ex1223)
+head(ex1223)
+ex1223$Esteem1[ex1223$Esteem1!=1] <- 0
+hw6 <- ex1223[,c(9,10,21,22,23)]
+hw6$Income2005 <- log(hw6$Income2005)
+head(hw6)
+
+```
+
+#Obtain the logit model
+
+```{r}
+hw6$Gender <- factor(hw6$Gender)
+hw6logit <- glm(Esteem1 ~Income2005 + AFQT + Educ + Gender, data = hw6,family="binomial")
+summary(hw6logit)
+
+#logit(pi)=-2.773+ 0.166*Income2005+0.008*AFQT+0.076*Educ-0.146*I{Gender=male}
+#pi=exp(-2.773+ 0.166*Income2005+0.008*AFQT+0.076*Educ-0.146*I{Gender=male})/(1+exp(-2.773+ 0.166*Income2005+0.008*AFQT+0.076*Educ-0.146*I{Gender=male}))
+```
+
+#Interpret parameters
+
+```{r}
+#Odds of strong agreement increase by exp(0.166)=1.180573 times as Income2005(income) increase 1 unit
+#Odds of strong agreement increase by exp(0.008)=1.008032 times as AFQT(intelligence) increase 1 unit
+#Odds of strong agreement increase by exp(0.076)=1.078963 times as Educ(education) increase 1 unit
+#The odds of strong agreement of a male is exp(-0.146)=0.8641577 times of the odds female
+
+```
+
+#Obtain training and test sets
+
+```{r}
+dim(hw6)
+hw6.training <-hw6[1:1800,]
+hw6.test <- hw6[1801:2584,]
+```
+
+#Confusion table
+
+```{r}
+train.fit <- glm(Esteem1 ~Income2005 + AFQT + Educ + Gender, data = hw6.training,family="binomial")
+prob.fit <- predict(train.fit,hw6.test,type="response")
+pred.fit <- rep("0",784)
+pred.fit[prob.fit>0.5] <- "1"
+table(predicted=pred.fit,actual=hw6.test$Esteem1)
+
+#There are 92 cases that actual and predicted all showed disagree and 399 case that actual and predicted showed agree
+#There are 245 cases that actual showed disagree but predicted agree and 48 cases that actual showed agree but predicted disagree
+```
+
+#Use backward selection to check which variable should be deleted
+
+```{r}
+train.fit.backward <- step(train.fit)
+formula(train.fit.backward) 
+
+#Retain all variables
+```
+
+#Method:LDA
+```{r}
+hw.lda <- lda(Esteem1 ~Income2005 + AFQT + Educ + Gender, data = hw6.training)
+pred.fit.2 <- predict(hw.lda,hw6.test)$class
+table.lda <- table(predicted=as.numeric(pred.fit.2),actual=hw6.test$Esteem1)
+accuracy.lda <- (table.lda[1]+table.lda[4])/sum(table.lda)
+accuracy.lda
+
+#The accuarcy rate of LDA method is 62.88%.
+```
+
+#Method:RDA
+```{r}
+hw.rda <- rda(Esteem1 ~Income2005 + AFQT + Educ + Gender, data = hw6.training)
+pred.fit.3 <- predict(hw.rda,hw6.test)$class
+table.rda <- table(predicted=as.numeric(pred.fit.3),actual=hw6.test$Esteem1)
+accuracy.rda <- (table.rda[1]+table.rda[4])/sum(table.rda)
+accuracy.rda
+#The accuarcy rate of RDA method is 61.22%
+```
+
+#Regression trees
+```{r}
+hw.tree <- rpart(Esteem1 ~Income2005 + AFQT + Educ + Gender, data=hw6.training)
+pred.fit.4 <- predict(hw.tree,hw6.test,type=c("vector"))
+table.tree <- table(predicted=as.numeric(pred.fit.4),actual=hw6.test$Esteem1)
+accuracy.tree <- (table.tree[1]+table.tree[4])/sum(table.tree)
+accuracy.tree
+#The accuarcy rate of RDA method is 59.18%.
+```
+
+#Conclusion: LDA method is the best among the four methods.
